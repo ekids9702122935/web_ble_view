@@ -1,4 +1,4 @@
-"use strict";(self.webpackChunk_N_E=self.webpackChunk_N_E||[]).push([[674],{6704:function(t,e,i){i.d(e,{De:function(){return w},Dx:function(){return S},ZL:function(){return BarElement},f$:function(){return LinearScale},kL:function(){return Chart},u:function(){return D},uw:function(){return CategoryScale},vn:function(){return BarController}});var s=i(8273);/*!
+"use strict";(self.webpackChunk_N_E=self.webpackChunk_N_E||[]).push([[674],{6704:function(t,e,i){i.d(e,{De:function(){return w},Dx:function(){return S},FB:function(){return TimeScale},IQ:function(){return o},ST:function(){return LineController},ZL:function(){return BarElement},f$:function(){return LinearScale},jn:function(){return LineElement},kL:function(){return Chart},od:function(){return PointElement},u:function(){return D},uw:function(){return CategoryScale},vn:function(){return BarController}});var s=i(8273);/*!
  * Chart.js v4.4.9
  * https://www.chartjs.org
  * (c) 2025 Chart.js Contributors
