@@ -9,6 +9,10 @@ interface BluetoothDevice {
   macAddress: string;
   lastSeen: number;
   updateCount: number;
+  rssiHistory: Array<{
+    timestamp: number;
+    rssi: number;
+  }>;
 }
 
 export default function Home() {
@@ -16,6 +20,7 @@ export default function Home() {
   const [port, setPort] = useState<SerialPort | null>(null);
   const [filterKeyword, setFilterKeyword] = useState('');
   const [lastUpdate, setLastUpdate] = useState(Date.now());
+  const [chartType, setChartType] = useState<'bar' | 'line'>('bar');
 
   // 過濾設備列表
   const filteredDevices = devices.filter(device => 
@@ -28,7 +33,8 @@ export default function Home() {
     setDevices(prevDevices => 
       prevDevices.map(device => ({
         ...device,
-        updateCount: 0  // 重置計數
+        updateCount: 0,  // 重置計數
+        rssiHistory: chartType === 'line' ? [] : device.rssiHistory // 在折線圖模式下清除歷史數據
       }))
     );
     setLastUpdate(Date.now());
@@ -88,13 +94,18 @@ export default function Home() {
                 .split(',');
 
               if (mac && rssi && name) {
-                updatedDevices.push({
+                const newDevice = {
                   macAddress: mac,
                   rssi: parseInt(rssi),
                   name: name,
                   lastSeen: currentTime,
-                  updateCount: 1  // 初始計數為1
-                });
+                  updateCount: 1,
+                  rssiHistory: [{
+                    timestamp: currentTime,
+                    rssi: parseInt(rssi)
+                  }]
+                };
+                updatedDevices.push(newDevice);
               }
             }
           } catch (e) {
@@ -117,14 +128,18 @@ export default function Home() {
                 const existingDevice = newDevices[existingIndex];
                 newDevices[existingIndex] = {
                   ...updatedDevice,
-                  updateCount: existingDevice.updateCount + 1
+                  updateCount: existingDevice.updateCount + 1,
+                  rssiHistory: [
+                    ...existingDevice.rssiHistory,
+                    {
+                      timestamp: currentTime,
+                      rssi: updatedDevice.rssi
+                    }
+                  ].slice(-50) // 只保留最近50筆記錄
                 };
               } else {
-                // 添加新設備，初始計數為1
-                newDevices.push({
-                  ...updatedDevice,
-                  updateCount: 1
-                });
+                // 添加新設備
+                newDevices.push(updatedDevice);
               }
             });
 
@@ -139,6 +154,10 @@ export default function Home() {
       }
     } catch (error) {
       console.error('讀取數據時發生錯誤:', error);
+      // 重置狀態
+      setPort(null);
+      setDevices([]);
+      alert('序列埠連接已斷開，請重新連接');
     } finally {
       reader.releaseLock();
     }
@@ -184,12 +203,22 @@ export default function Home() {
                   placeholder="輸入設備名稱或MAC地址進行過濾..."
                   className="px-4 py-2 border border-gray-300 rounded w-64 focus:outline-none focus:border-blue-500"
                 />
-                <button
-                  onClick={refreshChart}
-                  className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-                >
-                  重整圖表
-                </button>
+                <div className="flex items-center space-x-2">
+                  <select
+                    value={chartType}
+                    onChange={(e) => setChartType(e.target.value as 'bar' | 'line')}
+                    className="px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="bar">柱狀圖</option>
+                    <option value="line">折線圖</option>
+                  </select>
+                  <button
+                    onClick={refreshChart}
+                    className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                  >
+                    重整圖表
+                  </button>
+                </div>
               </>
             )}
           </div>
@@ -204,7 +233,11 @@ export default function Home() {
 
         {filteredDevices.length > 0 && (
           <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-            <SignalChart devices={filteredDevices} key={lastUpdate} />
+            <SignalChart 
+              devices={filteredDevices} 
+              chartType={chartType}
+              key={lastUpdate} 
+            />
           </div>
         )}
       </div>
