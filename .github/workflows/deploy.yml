@@ -28,12 +28,17 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Add .nojekyll file
-        run: touch ./out/.nojekyll
+      - name: Configure Pages
+        run: |
+          touch out/.nojekyll
+          echo "web_ble_view.github.io" > out/CNAME
 
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           folder: out
           branch: gh-pages
-          clean: true 
+          clean: true
+          clean-exclude: |
+            .nojekyll
+            CNAME 
