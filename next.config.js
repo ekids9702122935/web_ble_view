@@ -6,6 +6,8 @@ const nextConfig = {
     unoptimized: true,
   },
   basePath: '/web_ble_view',
+  assetPrefix: '/web_ble_view/',
+  trailingSlash: true,
 }
 
 module.exports = nextConfig 
