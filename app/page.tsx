@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { SignalChart } from '../components/SignalChart';
 
 interface BluetoothDevice {
@@ -21,6 +21,12 @@ export default function Home() {
   const [filterKeyword, setFilterKeyword] = useState('');
   const [lastUpdate, setLastUpdate] = useState(Date.now());
   const [chartType, setChartType] = useState<'bar' | 'line'>('bar');
+  const [isPaused, setIsPaused] = useState(false);
+  const isPausedRef = useRef(isPaused);
+
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
 
   // 過濾設備列表
   const filteredDevices = devices.filter(device => 
@@ -94,6 +100,7 @@ export default function Home() {
                 .split(',');
 
               if (mac && rssi && name) {
+                const currentTime = Date.now();
                 const newDevice = {
                   macAddress: mac,
                   rssi: parseInt(rssi),
@@ -113,7 +120,7 @@ export default function Home() {
           }
         }
 
-        if (updatedDevices.length > 0) {
+        if (updatedDevices.length > 0 && !isPausedRef.current) {
           setDevices(prevDevices => {
             const newDevices = [...prevDevices];
             
@@ -212,6 +219,12 @@ export default function Home() {
                     <option value="bar">柱狀圖</option>
                     <option value="line">折線圖</option>
                   </select>
+                  <button
+                    onClick={() => setIsPaused(p => !p)}
+                    className={`px-4 py-2 rounded text-white ${isPaused ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-gray-500 hover:bg-gray-600'}`}
+                  >
+                    {isPaused ? '繼續' : '暫停'}
+                  </button>
                   <button
                     onClick={refreshChart}
                     className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
