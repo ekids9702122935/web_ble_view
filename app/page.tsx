@@ -23,10 +23,14 @@ export default function Home() {
   const [chartType, setChartType] = useState<'bar' | 'line'>('bar');
   const [isPaused, setIsPaused] = useState(false);
   const isPausedRef = useRef(isPaused);
+  const [dataFormat, setDataFormat] = useState<'original' | 'new'>('original');
+  const dataFormatRef = useRef(dataFormat);
 
   useEffect(() => {
     isPausedRef.current = isPaused;
   }, [isPaused]);
+
+  useEffect(() => { dataFormatRef.current = dataFormat; }, [dataFormat]);
 
   // 過濾設備列表
   const filteredDevices = devices.filter(device => 
@@ -81,87 +85,137 @@ export default function Home() {
 
         const newData = decoder.decode(value);
         buffer += newData;
-        
-        // 分割多個設備數據
-        const deviceEntries = buffer.split(';');
-        // 保留最後一個可能不完整的條目
-        buffer = deviceEntries.pop() || '';
+        console.log('serial newData:', newData);
+        console.log('serial buffer:', buffer);
 
-        // 處理完整的設備數據
-        const currentTime = Date.now();
-        const updatedDevices: BluetoothDevice[] = [];
+        if (dataFormatRef.current === 'original') {
+          // 原本格式解析
+          const deviceEntries = buffer.split(';');
+          buffer = deviceEntries.pop() || '';
+          const currentTime = Date.now();
+          const updatedDevices: BluetoothDevice[] = [];
 
-        for (const entry of deviceEntries) {
-          try {
-            if (entry.trim().startsWith('BLE_DEVICE:')) {
-              // 移除 "BLE_DEVICE:" 前綴並分割數據
-              const [mac, rssi, name, manufacturerData] = entry
-                .replace('BLE_DEVICE:', '')
-                .split(',');
+          for (const entry of deviceEntries) {
+            try {
+              if (entry.trim().startsWith('BLE_DEVICE:')) {
+                const [mac, rssi, name, manufacturerData] = entry
+                  .replace('BLE_DEVICE:', '')
+                  .split(',');
+                if (mac && rssi && name) {
+                  const currentTime = Date.now();
+                  const newDevice = {
+                    macAddress: mac,
+                    rssi: parseInt(rssi),
+                    name: name,
+                    lastSeen: currentTime,
+                    updateCount: 1,
+                    rssiHistory: [{
+                      timestamp: currentTime,
+                      rssi: parseInt(rssi)
+                    }]
+                  };
+                  updatedDevices.push(newDevice);
+                }
+              }
+            } catch (e) {
+              console.error('解析設備數據時發生錯誤:', e);
+            }
+          }
 
-              if (mac && rssi && name) {
-                const currentTime = Date.now();
+          if (updatedDevices.length > 0 && !isPausedRef.current) {
+            setDevices(prevDevices => {
+              const newDevices = [...prevDevices];
+              updatedDevices.forEach(updatedDevice => {
+                const existingIndex = newDevices.findIndex(
+                  d => d.macAddress === updatedDevice.macAddress
+                );
+                if (existingIndex >= 0) {
+                  const existingDevice = newDevices[existingIndex];
+                  newDevices[existingIndex] = {
+                    ...updatedDevice,
+                    updateCount: existingDevice.updateCount + 1,
+                    rssiHistory: [
+                      ...existingDevice.rssiHistory,
+                      {
+                        timestamp: currentTime,
+                        rssi: updatedDevice.rssi
+                      }
+                    ].slice(-50)
+                  };
+                } else {
+                  newDevices.push(updatedDevice);
+                }
+              });
+              const activeDevices = newDevices.filter(
+                device => currentTime - device.lastSeen <= 30000
+              );
+              return activeDevices;
+            });
+          }
+        } else if (dataFormatRef.current === 'new') {
+          // 用正則抓出所有 (TYPE,MAC,[val1,val2]) 片段
+          const matches = buffer.match(/\([^()]+,[^()]+,\[[^\]]*\]\)/g) || [];
+          buffer = buffer.replace(/\([^()]+,[^()]+,\[[^\]]*\]\)/g, ''); // 移除已處理的片段
+          const currentTime = Date.now();
+          const updatedDevices: BluetoothDevice[] = [];
+
+          for (const match of matches) {
+            try {
+              const inner = match.slice(1, -1); // 去掉括號
+              const [type, mac, values] = inner.split(',');
+              if (mac) {
                 const newDevice = {
                   macAddress: mac,
-                  rssi: parseInt(rssi),
-                  name: name,
+                  rssi: 0,
+                  name: type,
                   lastSeen: currentTime,
                   updateCount: 1,
                   rssiHistory: [{
                     timestamp: currentTime,
-                    rssi: parseInt(rssi)
+                    rssi: 0
                   }]
                 };
                 updatedDevices.push(newDevice);
               }
+            } catch (e) {
+              console.error('解析格式數據發生錯誤:', e);
             }
-          } catch (e) {
-            console.error('解析設備數據時發生錯誤:', e);
           }
-        }
 
-        if (updatedDevices.length > 0 && !isPausedRef.current) {
-          setDevices(prevDevices => {
-            const newDevices = [...prevDevices];
-            
-            // 更新或添加新設備
-            updatedDevices.forEach(updatedDevice => {
-              const existingIndex = newDevices.findIndex(
-                d => d.macAddress === updatedDevice.macAddress
+          if (updatedDevices.length > 0 && !isPausedRef.current) {
+            setDevices(prevDevices => {
+              const newDevices = [...prevDevices];
+              updatedDevices.forEach(updatedDevice => {
+                const existingIndex = newDevices.findIndex(
+                  d => d.macAddress === updatedDevice.macAddress
+                );
+                if (existingIndex >= 0) {
+                  const existingDevice = newDevices[existingIndex];
+                  newDevices[existingIndex] = {
+                    ...existingDevice,
+                    updateCount: existingDevice.updateCount + 1,
+                    rssiHistory: [
+                      ...existingDevice.rssiHistory,
+                      {
+                        timestamp: currentTime,
+                        rssi: 0
+                      }
+                    ].slice(-50)
+                  };
+                } else {
+                  newDevices.push(updatedDevice);
+                }
+              });
+              const activeDevices = newDevices.filter(
+                device => currentTime - device.lastSeen <= 30000
               );
-              
-              if (existingIndex >= 0) {
-                // 更新現有設備，保留並增加計數
-                const existingDevice = newDevices[existingIndex];
-                newDevices[existingIndex] = {
-                  ...updatedDevice,
-                  updateCount: existingDevice.updateCount + 1,
-                  rssiHistory: [
-                    ...existingDevice.rssiHistory,
-                    {
-                      timestamp: currentTime,
-                      rssi: updatedDevice.rssi
-                    }
-                  ].slice(-50) // 只保留最近50筆記錄
-                };
-              } else {
-                // 添加新設備
-                newDevices.push(updatedDevice);
-              }
+              return activeDevices;
             });
-
-            // 移除超過30秒未更新的設備
-            const activeDevices = newDevices.filter(
-              device => currentTime - device.lastSeen <= 30000
-            );
-
-            return activeDevices;
-          });
+          }
         }
       }
     } catch (error) {
       console.error('讀取數據時發生錯誤:', error);
-      // 重置狀態
       setPort(null);
       setDevices([]);
       alert('序列埠連接已斷開，請重新連接');
@@ -225,12 +279,18 @@ export default function Home() {
                   >
                     {isPaused ? '繼續' : '暫停'}
                   </button>
-                  <button
-                    onClick={refreshChart}
-                    className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-                  >
-                    重整圖表
-                  </button>
+                <button
+                  onClick={refreshChart}
+                  className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                >
+                  重整圖表
+                </button>
+                <button
+                  onClick={() => setDataFormat(f => f === 'original' ? 'new' : 'original')}
+                  className={`px-4 py-2 rounded text-white ${dataFormat === 'original' ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-pink-500 hover:bg-pink-600'}`}
+                >
+                  {dataFormat === 'original' ? '切換到解析格式' : '切換到原始格式'}
+                </button>
                 </div>
               </>
             )}
@@ -247,7 +307,7 @@ export default function Home() {
         {filteredDevices.length > 0 && (
           <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
             <SignalChart 
-              devices={filteredDevices} 
+              devices={dataFormat === 'new' ? filteredDevices.map(d => ({ ...d, rssi: d.updateCount })) : filteredDevices}
               chartType={chartType}
               key={lastUpdate} 
             />
