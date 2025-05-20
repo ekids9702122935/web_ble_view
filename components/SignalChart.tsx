@@ -64,12 +64,9 @@ export function SignalChart({ devices, chartType }: SignalChartProps) {
     return `hsla(${hue}, 70%, 50%, 0.8)`;
   };
 
-  // 按信號強度排序設備（從強到弱）
-  const sortedDevices = [...devices].sort((a, b) => b.rssi - a.rssi);
-
   // 創建柱狀圖數據
   const barData = {
-    labels: sortedDevices.map(device => {
+    labels: devices.map(device => {
       const name = device.name || '未知設備';
       const rssi = device.rssi;
       const count = device.updateCount;
@@ -80,9 +77,9 @@ export function SignalChart({ devices, chartType }: SignalChartProps) {
       ];
     }),
     datasets: [{
-      data: sortedDevices.map(device => normalizeRSSI(device.rssi)),
-      backgroundColor: sortedDevices.map(device => getSignalColor(normalizeRSSI(device.rssi))),
-      borderColor: sortedDevices.map(device => getSignalColor(normalizeRSSI(device.rssi))),
+      data: devices.map(device => normalizeRSSI(device.rssi)),
+      backgroundColor: devices.map(device => getSignalColor(normalizeRSSI(device.rssi))),
+      borderColor: devices.map(device => getSignalColor(normalizeRSSI(device.rssi))),
       borderWidth: 1,
       borderRadius: 4,
       barPercentage: 0.8,
@@ -92,7 +89,7 @@ export function SignalChart({ devices, chartType }: SignalChartProps) {
 
   // 創建折線圖數據
   const lineData = {
-    datasets: sortedDevices.map(device => ({
+    datasets: devices.map(device => ({
       label: device.name || '未知設備',
       data: device.rssiHistory.map(history => ({
         x: history.timestamp,
@@ -136,7 +133,7 @@ export function SignalChart({ devices, chartType }: SignalChartProps) {
         padding: 12,
         callbacks: {
           label: (context: any) => {
-            const device = sortedDevices[context.dataIndex];
+            const device = devices[context.dataIndex];
             const distance = estimateDistance(device.rssi);
             return [
               `MAC: ${device.macAddress}`,
@@ -161,11 +158,11 @@ export function SignalChart({ devices, chartType }: SignalChartProps) {
           },
           color: (context) => {
             const index = context.index;
-            if (index !== undefined && index >= 0 && index < sortedDevices.length) {
+            if (index !== undefined && index >= 0 && index < devices.length) {
               const parts = context.tick.label;
               if (Array.isArray(parts) && parts.length === 2) {
                 if (context.tick.label === parts[1]) {
-                  return getSignalColor(normalizeRSSI(sortedDevices[index].rssi));
+                  return getSignalColor(normalizeRSSI(devices[index].rssi));
                 }
               }
             }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { SignalChart } from '../components/SignalChart';
 
 interface BluetoothDevice {
@@ -25,6 +25,7 @@ export default function Home() {
   const isPausedRef = useRef(isPaused);
   const [dataFormat, setDataFormat] = useState<'original' | 'new'>('original');
   const dataFormatRef = useRef(dataFormat);
+  const [sortBy, setSortBy] = useState<'rssi' | 'name'>('rssi');
 
   useEffect(() => {
     isPausedRef.current = isPaused;
@@ -32,21 +33,46 @@ export default function Home() {
 
   useEffect(() => { dataFormatRef.current = dataFormat; }, [dataFormat]);
 
-  // 過濾設備列表
-  const filteredDevices = devices.filter(device => 
-    device.name.toLowerCase().includes(filterKeyword.toLowerCase()) ||
-    device.macAddress.toLowerCase().includes(filterKeyword.toLowerCase())
-  );
+  // 過濾並排序設備列表
+  const filteredDevices = devices
+    .filter(device => 
+      device.name.toLowerCase().includes(filterKeyword.toLowerCase()) ||
+      device.macAddress.toLowerCase().includes(filterKeyword.toLowerCase())
+    )
+    .sort((a, b) => {
+      if (sortBy === 'rssi') {
+        return b.rssi - a.rssi;
+      } else {
+        const nameA = a.name.trim();
+        const nameB = b.name.trim();
+        if (nameA === nameB) {
+          return a.macAddress.localeCompare(b.macAddress);
+        }
+        return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+      }
+    });
+
+  const sortedDevices = useMemo(() => {
+    const arr = dataFormat === 'new'
+      ? filteredDevices.map(d => ({ ...d, rssi: d.updateCount }))
+      : filteredDevices;
+    return [...arr].sort((a, b) => {
+      if (sortBy === 'rssi') {
+        return b.rssi - a.rssi;
+      } else {
+        const nameA = a.name.trim();
+        const nameB = b.name.trim();
+        if (nameA === nameB) {
+          return a.macAddress.localeCompare(b.macAddress);
+        }
+        return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+      }
+    });
+  }, [filteredDevices, sortBy, dataFormat]);
 
   // 重整圖表並重置計數
   const refreshChart = () => {
-    setDevices(prevDevices => 
-      prevDevices.map(device => ({
-        ...device,
-        updateCount: 0,  // 重置計數
-        rssiHistory: chartType === 'line' ? [] : device.rssiHistory // 在折線圖模式下清除歷史數據
-      }))
-    );
+    setDevices([]); // 清空裝置
     setLastUpdate(Date.now());
   };
 
@@ -104,9 +130,9 @@ export default function Home() {
                 if (mac && rssi && name) {
                   const currentTime = Date.now();
                   const newDevice = {
-                    macAddress: mac,
+                    macAddress: mac.trim().toLowerCase(),
                     rssi: parseInt(rssi),
-                    name: name,
+                    name: name.trim(),
                     lastSeen: currentTime,
                     updateCount: 1,
                     rssiHistory: [{
@@ -127,7 +153,7 @@ export default function Home() {
               const newDevices = [...prevDevices];
               updatedDevices.forEach(updatedDevice => {
                 const existingIndex = newDevices.findIndex(
-                  d => d.macAddress === updatedDevice.macAddress
+                  d => d.macAddress.trim().toLowerCase() === updatedDevice.macAddress.trim().toLowerCase()
                 );
                 if (existingIndex >= 0) {
                   const existingDevice = newDevices[existingIndex];
@@ -165,9 +191,9 @@ export default function Home() {
               const [type, mac, values] = inner.split(',');
               if (mac) {
                 const newDevice = {
-                  macAddress: mac,
+                  macAddress: mac.trim().toLowerCase(),
                   rssi: 0,
-                  name: type,
+                  name: type.trim(),
                   lastSeen: currentTime,
                   updateCount: 1,
                   rssiHistory: [{
@@ -187,7 +213,7 @@ export default function Home() {
               const newDevices = [...prevDevices];
               updatedDevices.forEach(updatedDevice => {
                 const existingIndex = newDevices.findIndex(
-                  d => d.macAddress === updatedDevice.macAddress
+                  d => d.macAddress.trim().toLowerCase() === updatedDevice.macAddress.trim().toLowerCase()
                 );
                 if (existingIndex >= 0) {
                   const existingDevice = newDevices[existingIndex];
@@ -262,8 +288,17 @@ export default function Home() {
                   value={filterKeyword}
                   onChange={(e) => setFilterKeyword(e.target.value)}
                   placeholder="輸入設備名稱或MAC地址進行過濾..."
-                  className="px-4 py-2 border border-gray-300 rounded w-64 focus:outline-none focus:border-blue-500"
+                  style={{ width: '300px' }}
+                  className="px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
                 />
+                <select
+                  value={sortBy}
+                  onChange={e => setSortBy(e.target.value as 'rssi' | 'name')}
+                  className="px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
+                >
+                  <option value="rssi">依 RSSI 強度排序</option>
+                  <option value="name">依設備名稱排序</option>
+                </select>
                 <div className="flex items-center space-x-2">
                   <select
                     value={chartType}
@@ -307,7 +342,7 @@ export default function Home() {
         {filteredDevices.length > 0 && (
           <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
             <SignalChart 
-              devices={dataFormat === 'new' ? filteredDevices.map(d => ({ ...d, rssi: d.updateCount })) : filteredDevices}
+              devices={sortedDevices}
               chartType={chartType}
               key={lastUpdate} 
             />
