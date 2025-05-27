@@ -23,7 +23,7 @@ export default function Home() {
   const [chartType, setChartType] = useState<'bar' | 'line'>('bar');
   const [isPaused, setIsPaused] = useState(false);
   const isPausedRef = useRef(isPaused);
-  const [dataFormat, setDataFormat] = useState<'original' | 'new'>('original');
+  const [dataFormat, setDataFormat] = useState<'original' | 'new' | 'profile'>('original');
   const dataFormatRef = useRef(dataFormat);
   const [sortBy, setSortBy] = useState<'rssi' | 'name'>('rssi');
 
@@ -238,6 +238,69 @@ export default function Home() {
               return activeDevices;
             });
           }
+        } else if (dataFormatRef.current === 'profile') {
+          // 解析 PROFILE_JSON:FTMS,MAC,{json}，支援連續資料
+          const matches = buffer.match(/PROFILE_JSON:[^,]+,[^,]+,{[^}]+}/g) || [];
+          buffer = buffer.replace(/PROFILE_JSON:[^,]+,[^,]+,{[^}]+}/g, ''); // 移除已處理的片段
+          const currentTime = Date.now();
+          const updatedDevices: BluetoothDevice[] = [];
+          for (const entry of matches) {
+            try {
+              // PROFILE_JSON:FTMS,MAC,{json}
+              const match = entry.match(/^PROFILE_JSON:[^,]+,([^,]+),({[^}]+})$/);
+              if (match) {
+                const mac = match[1].trim().toLowerCase();
+                const jsonStr = match[2];
+                const json = JSON.parse(jsonStr);
+                if (mac && typeof json.rssi === 'number') {
+                  const newDevice = {
+                    macAddress: mac,
+                    rssi: json.rssi,
+                    name: mac, // 只顯示 mac
+                    lastSeen: currentTime,
+                    updateCount: 1,
+                    rssiHistory: [{
+                      timestamp: currentTime,
+                      rssi: json.rssi
+                    }]
+                  };
+                  updatedDevices.push(newDevice);
+                }
+              }
+            } catch (e) {
+              console.error('解析 PROFILE_JSON 數據時發生錯誤:', e);
+            }
+          }
+          if (updatedDevices.length > 0 && !isPausedRef.current) {
+            setDevices(prevDevices => {
+              const newDevices = [...prevDevices];
+              updatedDevices.forEach(updatedDevice => {
+                const existingIndex = newDevices.findIndex(
+                  d => d.macAddress.trim().toLowerCase() === updatedDevice.macAddress.trim().toLowerCase()
+                );
+                if (existingIndex >= 0) {
+                  const existingDevice = newDevices[existingIndex];
+                  newDevices[existingIndex] = {
+                    ...updatedDevice,
+                    updateCount: existingDevice.updateCount + 1,
+                    rssiHistory: [
+                      ...existingDevice.rssiHistory,
+                      {
+                        timestamp: currentTime,
+                        rssi: updatedDevice.rssi
+                      }
+                    ].slice(-50)
+                  };
+                } else {
+                  newDevices.push(updatedDevice);
+                }
+              });
+              const activeDevices = newDevices.filter(
+                device => currentTime - device.lastSeen <= 30000
+              );
+              return activeDevices;
+            });
+          }
         }
       }
     } catch (error) {
@@ -314,18 +377,21 @@ export default function Home() {
                   >
                     {isPaused ? '繼續' : '暫停'}
                   </button>
-                <button
-                  onClick={refreshChart}
-                  className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-                >
-                  重整圖表
-                </button>
-                <button
-                  onClick={() => setDataFormat(f => f === 'original' ? 'new' : 'original')}
-                  className={`px-4 py-2 rounded text-white ${dataFormat === 'original' ? 'bg-indigo-500 hover:bg-indigo-600' : 'bg-pink-500 hover:bg-pink-600'}`}
-                >
-                  {dataFormat === 'original' ? '切換到解析格式' : '切換到原始格式'}
-                </button>
+                  <button
+                    onClick={refreshChart}
+                    className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                  >
+                    重整圖表
+                  </button>
+                  <select
+                    value={dataFormat}
+                    onChange={e => setDataFormat(e.target.value as 'original' | 'new' | 'profile')}
+                    className="px-4 py-2 rounded text-white bg-indigo-500 hover:bg-indigo-600 focus:outline-none focus:border-indigo-700"
+                  >
+                    <option value="original">原始格式</option>
+                    <option value="new">解析格式</option>
+                    <option value="profile">連線格式</option>
+                  </select>
                 </div>
               </>
             )}
