@@ -303,7 +303,7 @@ export function SignalChart({ devices, chartType }: SignalChartProps) {
 
   return (
     <div className={`w-full h-[${containerHeight}px] relative bg-white p-6 rounded-lg`}>
-      <h2 className="text-center text-2xl font-bold mb-6">藍牙設備信號強度</h2>
+      <h2 className="text-center text-2xl font-bold mb-6">設備信號強度顯示器</h2>
       <div className="w-full" style={{ height: `${containerHeight - 100}px` }}>
         {chartType === 'bar' ? (
           <Bar data={barData} options={barOptions} />

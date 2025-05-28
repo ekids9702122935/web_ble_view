@@ -5,8 +5,8 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: '藍牙掃描範圍標定系統',
-  description: '使用 Web Serial API 和 Web BLE 技術的藍牙掃描範圍標定系統',
+  title: 'Gateway 設備監測',
+  description: '使用 Web Serial API 進行設備監測',
 }
 
 export default function RootLayout({

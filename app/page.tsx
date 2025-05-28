@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { SignalChart } from '../components/SignalChart';
+import { GatewayControlPanel } from '../components/GatewayControlPanel';
 
 interface BluetoothDevice {
   name: string;
@@ -26,6 +27,7 @@ export default function Home() {
   const [dataFormat, setDataFormat] = useState<'original' | 'new' | 'profile'>('original');
   const dataFormatRef = useRef(dataFormat);
   const [sortBy, setSortBy] = useState<'rssi' | 'name'>('rssi');
+  const [gatewayResponse, setGatewayResponse] = useState('');
 
   useEffect(() => {
     isPausedRef.current = isPaused;
@@ -85,11 +87,11 @@ export default function Home() {
       setPort(port);
       readSerialData(port);
       
-      // 自動開始掃描
-      const writer = port.writable.getWriter();
-      await writer.write(new TextEncoder().encode('scan\n'));
-      writer.releaseLock();
-      console.log('掃描已自動開始');
+      // // 自動開始掃描
+      // const writer = port.writable.getWriter();
+      // await writer.write(new TextEncoder().encode('scan\n'));
+      // writer.releaseLock();
+      // console.log('掃描已自動開始');
     } catch (error) {
       console.error('連接序列埠時發生錯誤:', error);
     }
@@ -100,6 +102,8 @@ export default function Home() {
     const reader = port.readable.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let bleConnListBuffer = '';
+    let waitingForConnList = false;
 
     try {
       while (true) {
@@ -113,6 +117,40 @@ export default function Home() {
         buffer += newData;
         console.log('serial newData:', newData);
         console.log('serial buffer:', buffer);
+
+        // BLE_CONN_LIST 處理：累積直到 ;\r\n 結尾
+        if (waitingForConnList) {
+          bleConnListBuffer += newData;
+          if (/;\r?\n/.test(bleConnListBuffer)) {
+            setGatewayResponse(bleConnListBuffer.trim());
+            bleConnListBuffer = '';
+            waitingForConnList = false;
+          }
+          continue;
+        }
+
+        // 改善 gateway 命令回應偵測，並處理 ERROR 說明
+        if (/(ERROR|OK|STATUS|REBOOT|VERSION|BLE_CONN_LIST|BLE_FILTER_LIST|BLE_CONN_CLEAR|BLE_DISCONN_ALL)/.test(newData)) {
+          let resp = newData.trim();
+          // 若為 ERROR，顯示詳細說明
+          const errorMatch = resp.match(/ERROR;(.+)/);
+          if (errorMatch) {
+            resp = `錯誤：${errorMatch[1].trim()}`;
+          }
+          // 如果是 BLE_CONN_LIST 查詢，啟動累積模式
+          if (/^BLE_CONN_LIST/.test(resp)) {
+            bleConnListBuffer = resp;
+            waitingForConnList = true;
+            // 如果一包就結束，直接顯示
+            if (/;\r?\n$/.test(resp)) {
+              setGatewayResponse(resp);
+              bleConnListBuffer = '';
+              waitingForConnList = false;
+            }
+            continue;
+          }
+          setGatewayResponse(resp);
+        }
 
         if (dataFormatRef.current === 'original') {
           // 原本格式解析
@@ -331,80 +369,78 @@ export default function Home() {
   return (
     <main className="min-h-screen p-8">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-2xl font-bold mb-4">藍牙設備信號強度監測</h1>
-        
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            {!port && (
-              <button
-                onClick={connectSerial}
-                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-              >
-                連接序列埠
-              </button>
-            )}
-            
-            {port && (
-              <>
-                <input
-                  type="text"
-                  value={filterKeyword}
-                  onChange={(e) => setFilterKeyword(e.target.value)}
-                  placeholder="輸入設備名稱或MAC地址進行過濾..."
-                  style={{ width: '300px' }}
-                  className="px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
-                />
-                <select
-                  value={sortBy}
-                  onChange={e => setSortBy(e.target.value as 'rssi' | 'name')}
-                  className="px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
-                >
-                  <option value="rssi">依 RSSI 強度排序</option>
-                  <option value="name">依設備名稱排序</option>
-                </select>
-                <div className="flex items-center space-x-2">
-                  <select
-                    value={chartType}
-                    onChange={(e) => setChartType(e.target.value as 'bar' | 'line')}
-                    className="px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="bar">柱狀圖</option>
-                    <option value="line">折線圖</option>
-                  </select>
-                  <button
-                    onClick={() => setIsPaused(p => !p)}
-                    className={`px-4 py-2 rounded text-white ${isPaused ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-gray-500 hover:bg-gray-600'}`}
-                  >
-                    {isPaused ? '繼續' : '暫停'}
-                  </button>
-                  <button
-                    onClick={refreshChart}
-                    className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-                  >
-                    重整圖表
-                  </button>
-                  <select
-                    value={dataFormat}
-                    onChange={e => setDataFormat(e.target.value as 'original' | 'new' | 'profile')}
-                    className="px-4 py-2 rounded text-white bg-indigo-500 hover:bg-indigo-600 focus:outline-none focus:border-indigo-700"
-                  >
-                    <option value="original">原始格式</option>
-                    <option value="new">解析格式</option>
-                    <option value="profile">連線格式</option>
-                  </select>
-                </div>
-              </>
+        <h1 className="text-4xl font-bold mb-4">Gateway 設備監測</h1>
+        {!port && (
+          <button
+            onClick={connectSerial}
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 mb-6"
+          >
+            連接序列埠
+          </button>
+        )}
+        {/* Gateway 控制面板卡片在最上方 */}
+        {port && (
+          <div className="w-full mb-6">
+            <GatewayControlPanel port={port} response={gatewayResponse} onSend={() => setGatewayResponse('')} />
+          </div>
+        )}
+        {/* 控制列與設備數量顯示 */}
+        {port && (
+          <div className="flex flex-wrap items-center gap-4 mb-4">
+            <input
+              type="text"
+              value={filterKeyword}
+              onChange={(e) => setFilterKeyword(e.target.value)}
+              placeholder="輸入設備名稱或MAC地址進行過濾..."
+              style={{ width: '300px' }}
+              className="px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
+            />
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value as 'rssi' | 'name')}
+              className="px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
+            >
+              <option value="rssi">依 RSSI 強度排序</option>
+              <option value="name">依設備名稱排序</option>
+            </select>
+            <select
+              value={chartType}
+              onChange={(e) => setChartType(e.target.value as 'bar' | 'line')}
+              className="px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
+            >
+              <option value="bar">柱狀圖</option>
+              <option value="line">折線圖</option>
+            </select>
+            <button
+              onClick={() => setIsPaused(p => !p)}
+              className={`px-4 py-2 rounded text-white ${isPaused ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-gray-500 hover:bg-gray-600'}`}
+            >
+              {isPaused ? '繼續' : '暫停'}
+            </button>
+            <button
+              onClick={refreshChart}
+              className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+            >
+              重整圖表
+            </button>
+            <select
+              value={dataFormat}
+              onChange={e => setDataFormat(e.target.value as 'original' | 'new' | 'profile')}
+              className="px-4 py-2 rounded text-white bg-indigo-500 hover:bg-indigo-600 focus:outline-none focus:border-indigo-700"
+            >
+              <option value="original">原始格式</option>
+              <option value="new">解析格式</option>
+              <option value="profile">連線格式</option>
+            </select>
+            {devices.length > 0 && (
+              <div className="text-sm text-gray-600">
+                共找到 {devices.length} 個設備
+                {filterKeyword && `, 符合條件 ${filteredDevices.length} 個`}
+              </div>
             )}
           </div>
-          
-          {port && devices.length > 0 && (
-            <div className="text-sm text-gray-600">
-              共找到 {devices.length} 個設備
-              {filterKeyword && `, 符合條件 ${filteredDevices.length} 個`}
-            </div>
-          )}
-        </div>
-
+        )}
+        {/* 圖表顯示在卡片下方 */}
         {filteredDevices.length > 0 && (
           <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
             <SignalChart 
