@@ -41,14 +41,22 @@ interface SignalChartProps {
     }>;
   }>;
   chartType: 'bar' | 'line';
+  dataFormat?: 'original' | 'new' | 'profile' | 'allscanparse';
 }
 
-export function SignalChart({ devices, chartType }: SignalChartProps) {
+export function SignalChart({ devices, chartType, dataFormat = 'original' }: SignalChartProps) {
   // 將 RSSI 值轉換為 0-100 的信號強度
   const normalizeRSSI = (rssi: number): number => {
     const min = -100;
     const max = -30;
     return Math.max(0, Math.min(100, ((rssi - min) / (max - min)) * 100));
+  };
+
+  // 將心率值轉換為 0-100 的強度（心率範圍 40-200）
+  const normalizeHeartRate = (heartRate: number): number => {
+    const min = 40;
+    const max = 200;
+    return Math.max(0, Math.min(100, ((heartRate - min) / (max - min)) * 100));
   };
 
   // 根據 RSSI 估算距離（米）
@@ -70,16 +78,36 @@ export function SignalChart({ devices, chartType }: SignalChartProps) {
       const name = device.name || '未知設備';
       const rssi = device.rssi;
       const count = device.updateCount;
-      const distance = estimateDistance(rssi);
-      return [
-        `${name} `, 
-        `(${rssi} dBm, ~${distance}m, ${count}次)`
-      ];
+      
+      if (dataFormat === 'allscanparse') {
+        return [
+          `${name} `, 
+          `(心率: ${rssi} BPM, ${count}次)`
+        ];
+      } else {
+        const distance = estimateDistance(rssi);
+        return [
+          `${name} `, 
+          `(${rssi} dBm, ~${distance}m, ${count}次)`
+        ];
+      }
     }),
     datasets: [{
-      data: devices.map(device => normalizeRSSI(device.rssi)),
-      backgroundColor: devices.map(device => getSignalColor(normalizeRSSI(device.rssi))),
-      borderColor: devices.map(device => getSignalColor(normalizeRSSI(device.rssi))),
+      data: devices.map(device => 
+        dataFormat === 'allscanparse' 
+          ? normalizeHeartRate(device.rssi) 
+          : normalizeRSSI(device.rssi)
+      ),
+      backgroundColor: devices.map(device => 
+        dataFormat === 'allscanparse' 
+          ? getSignalColor(normalizeHeartRate(device.rssi))
+          : getSignalColor(normalizeRSSI(device.rssi))
+      ),
+      borderColor: devices.map(device => 
+        dataFormat === 'allscanparse' 
+          ? getSignalColor(normalizeHeartRate(device.rssi))
+          : getSignalColor(normalizeRSSI(device.rssi))
+      ),
       borderWidth: 1,
       borderRadius: 4,
       barPercentage: 0.8,
@@ -93,10 +121,16 @@ export function SignalChart({ devices, chartType }: SignalChartProps) {
       label: device.name || '未知設備',
       data: device.rssiHistory.map(history => ({
         x: history.timestamp,
-        y: normalizeRSSI(history.rssi)
+        y: dataFormat === 'allscanparse' 
+          ? normalizeHeartRate(history.rssi) 
+          : normalizeRSSI(history.rssi)
       })),
-      borderColor: getSignalColor(normalizeRSSI(device.rssi)),
-      backgroundColor: getSignalColor(normalizeRSSI(device.rssi)),
+      borderColor: dataFormat === 'allscanparse' 
+        ? getSignalColor(normalizeHeartRate(device.rssi))
+        : getSignalColor(normalizeRSSI(device.rssi)),
+      backgroundColor: dataFormat === 'allscanparse' 
+        ? getSignalColor(normalizeHeartRate(device.rssi))
+        : getSignalColor(normalizeRSSI(device.rssi)),
       tension: 0.4,
       pointRadius: 2,
       borderWidth: 2,
@@ -134,14 +168,23 @@ export function SignalChart({ devices, chartType }: SignalChartProps) {
         callbacks: {
           label: (context: any) => {
             const device = devices[context.dataIndex];
-            const distance = estimateDistance(device.rssi);
-            return [
-              `MAC: ${device.macAddress}`,
-              `RSSI: ${device.rssi} dBm`,
-              `估算距離: ${distance} 公尺`,
-              `信號強度: ${context.raw.toFixed(1)}%`,
-              `更新次數: ${device.updateCount}次`
-            ];
+            if (dataFormat === 'allscanparse') {
+              return [
+                `ID: ${device.macAddress}`,
+                `心率: ${device.rssi} BPM`,
+                `心率強度: ${context.raw.toFixed(1)}%`,
+                `更新次數: ${device.updateCount}次`
+              ];
+            } else {
+              const distance = estimateDistance(device.rssi);
+              return [
+                `MAC: ${device.macAddress}`,
+                `RSSI: ${device.rssi} dBm`,
+                `估算距離: ${distance} 公尺`,
+                `信號強度: ${context.raw.toFixed(1)}%`,
+                `更新次數: ${device.updateCount}次`
+              ];
+            }
           }
         }
       }
@@ -196,7 +239,7 @@ export function SignalChart({ devices, chartType }: SignalChartProps) {
         },
         title: {
           display: true,
-          text: '信號強度',
+          text: dataFormat === 'allscanparse' ? '心率強度' : '信號強度',
           color: 'rgba(0, 0, 0, 0.7)',
           font: {
             size: 14,
@@ -274,7 +317,7 @@ export function SignalChart({ devices, chartType }: SignalChartProps) {
         max: 100,
         title: {
           display: true,
-          text: '信號強度 (%)',
+          text: dataFormat === 'allscanparse' ? '心率強度 (%)' : '信號強度 (%)',
           color: 'rgba(0, 0, 0, 0.7)',
           font: {
             size: 14,
@@ -303,7 +346,9 @@ export function SignalChart({ devices, chartType }: SignalChartProps) {
 
   return (
     <div className={`w-full h-[${containerHeight}px] relative bg-white p-6 rounded-lg`}>
-      <h2 className="text-center text-2xl font-bold mb-6">設備信號強度顯示器</h2>
+      <h2 className="text-center text-2xl font-bold mb-6">
+        {dataFormat === 'allscanparse' ? '設備心率監測器' : '設備信號強度顯示器'}
+      </h2>
       <div className="w-full" style={{ height: `${containerHeight - 100}px` }}>
         {chartType === 'bar' ? (
           <Bar data={barData} options={barOptions} />

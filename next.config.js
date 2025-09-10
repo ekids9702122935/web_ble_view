@@ -5,8 +5,8 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  basePath: '/web_ble_view', //本地測試先註解
-  assetPrefix: '/web_ble_view/', //本地測試先註解
+  basePath: '/web_ble_view',
+  assetPrefix: '/web_ble_view/',
   trailingSlash: true,
 }
 

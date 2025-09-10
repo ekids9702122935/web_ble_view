@@ -24,7 +24,7 @@ export default function Home() {
   const [chartType, setChartType] = useState<'bar' | 'line'>('bar');
   const [isPaused, setIsPaused] = useState(false);
   const isPausedRef = useRef(isPaused);
-  const [dataFormat, setDataFormat] = useState<'original' | 'new' | 'profile'>('original');
+  const [dataFormat, setDataFormat] = useState<'original' | 'new' | 'profile' | 'allscanparse'>('original');
   const dataFormatRef = useRef(dataFormat);
   const [sortBy, setSortBy] = useState<'rssi' | 'name'>('rssi');
   const [gatewayResponse, setGatewayResponse] = useState('');
@@ -339,6 +339,66 @@ export default function Home() {
               return activeDevices;
             });
           }
+        } else if (dataFormatRef.current === 'allscanparse') {
+          // 解析 ALLSCANPARSE 格式：(E8:89:51:C1:E9:E8,66) 或 (14956,72)
+          const matches = buffer.match(/\([^,]+,\d+\)/g) || [];
+          buffer = buffer.replace(/\([^,]+,\d+\)/g, ''); // 移除已處理的片段
+          const currentTime = Date.now();
+          const updatedDevices: BluetoothDevice[] = [];
+
+          for (const match of matches) {
+            try {
+              const inner = match.slice(1, -1); // 去掉括號
+              const [id, heartRate] = inner.split(',');
+              if (id && heartRate) {
+                const newDevice = {
+                  macAddress: id.trim().toLowerCase(),
+                  rssi: parseInt(heartRate), // 使用心率值作為rssi欄位，方便圖表顯示
+                  name: `${id.trim()} (HR: ${heartRate})`, // 顯示ID和心率
+                  lastSeen: currentTime,
+                  updateCount: 1,
+                  rssiHistory: [{
+                    timestamp: currentTime,
+                    rssi: parseInt(heartRate)
+                  }]
+                };
+                updatedDevices.push(newDevice);
+              }
+            } catch (e) {
+              console.error('解析 ALLSCANPARSE 數據時發生錯誤:', e);
+            }
+          }
+
+          if (updatedDevices.length > 0 && !isPausedRef.current) {
+            setDevices(prevDevices => {
+              const newDevices = [...prevDevices];
+              updatedDevices.forEach(updatedDevice => {
+                const existingIndex = newDevices.findIndex(
+                  d => d.macAddress.trim().toLowerCase() === updatedDevice.macAddress.trim().toLowerCase()
+                );
+                if (existingIndex >= 0) {
+                  const existingDevice = newDevices[existingIndex];
+                  newDevices[existingIndex] = {
+                    ...existingDevice,
+                    updateCount: existingDevice.updateCount + 1,
+                    rssiHistory: [
+                      ...existingDevice.rssiHistory,
+                      {
+                        timestamp: currentTime,
+                        rssi: updatedDevice.rssi
+                      }
+                    ].slice(-50)
+                  };
+                } else {
+                  newDevices.push(updatedDevice);
+                }
+              });
+              const activeDevices = newDevices.filter(
+                device => currentTime - device.lastSeen <= 30000
+              );
+              return activeDevices;
+            });
+          }
         }
       }
     } catch (error) {
@@ -425,12 +485,13 @@ export default function Home() {
             </button>
             <select
               value={dataFormat}
-              onChange={e => setDataFormat(e.target.value as 'original' | 'new' | 'profile')}
+              onChange={e => setDataFormat(e.target.value as 'original' | 'new' | 'profile' | 'allscanparse')}
               className="px-4 py-2 rounded text-white bg-indigo-500 hover:bg-indigo-600 focus:outline-none focus:border-indigo-700"
             >
               <option value="original">原始格式</option>
               <option value="new">解析格式</option>
               <option value="profile">連線格式</option>
+              <option value="allscanparse">ALLSCANPARSE格式</option>
             </select>
             {devices.length > 0 && (
               <div className="text-sm text-gray-600">
@@ -446,6 +507,7 @@ export default function Home() {
             <SignalChart 
               devices={sortedDevices}
               chartType={chartType}
+              dataFormat={dataFormat}
               key={lastUpdate} 
             />
           </div>
