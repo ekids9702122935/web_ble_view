@@ -211,7 +211,7 @@ export default function Home() {
                 }
               });
               const activeDevices = newDevices.filter(
-                device => currentTime - device.lastSeen <= 30000
+                device => currentTime - device.lastSeen <= 60000
               );
               return activeDevices;
             });
@@ -271,7 +271,7 @@ export default function Home() {
                 }
               });
               const activeDevices = newDevices.filter(
-                device => currentTime - device.lastSeen <= 30000
+                device => currentTime - device.lastSeen <= 60000
               );
               return activeDevices;
             });
@@ -334,7 +334,7 @@ export default function Home() {
                 }
               });
               const activeDevices = newDevices.filter(
-                device => currentTime - device.lastSeen <= 30000
+                device => currentTime - device.lastSeen <= 60000
               );
               return activeDevices;
             });
@@ -394,7 +394,7 @@ export default function Home() {
                 }
               });
               const activeDevices = newDevices.filter(
-                device => currentTime - device.lastSeen <= 30000
+                device => currentTime - device.lastSeen <= 60000
               );
               return activeDevices;
             });
