@@ -131,16 +131,10 @@ export default function Home() {
 
         // 改善 gateway 命令回應偵測，並處理 ERROR 說明
         // 檢查 buffer 中是否有完整的命令回應
-        // VERSION 命令格式：VERSION:3.1.0，其他命令以分號結尾
-        const versionMatch = buffer.match(/VERSION:[0-9.]+/);
-        const commandMatch = buffer.match(/(ERROR|OK|STATUS|REBOOT|BLE_CONN_LIST|BLE_FILTER_LIST|BLE_CONN_CLEAR|BLE_DISCONN_ALL)[^;]*;/);
+        // 所有命令現在都以分號結尾，包括 VERSION
+        const commandMatch = buffer.match(/(ERROR|OK|STATUS|REBOOT|VERSION|BLE_CONN_LIST|BLE_FILTER_LIST|BLE_CONN_CLEAR|BLE_DISCONN_ALL)[^;]*;/);
         
-        if (versionMatch) {
-          let resp = versionMatch[0].trim();
-          setGatewayResponse(resp);
-          // 移除已處理的命令回應
-          buffer = buffer.replace(versionMatch[0], '');
-        } else if (commandMatch) {
+        if (commandMatch) {
           let resp = commandMatch[0].trim();
           // 若為 ERROR，顯示詳細說明
           const errorMatch = resp.match(/ERROR;(.+)/);
