@@ -131,8 +131,8 @@ export default function Home() {
 
         // 改善 gateway 命令回應偵測，並處理 ERROR 說明
         // 檢查 buffer 中是否有完整的命令回應
-        // VERSION 命令以換行符結尾，其他命令以分號結尾
-        const versionMatch = buffer.match(/VERSION:[^\r\n]*[\r\n]/);
+        // VERSION 命令格式：VERSION:3.1.0，其他命令以分號結尾
+        const versionMatch = buffer.match(/VERSION:[0-9.]+/);
         const commandMatch = buffer.match(/(ERROR|OK|STATUS|REBOOT|BLE_CONN_LIST|BLE_FILTER_LIST|BLE_CONN_CLEAR|BLE_DISCONN_ALL)[^;]*;/);
         
         if (versionMatch) {
