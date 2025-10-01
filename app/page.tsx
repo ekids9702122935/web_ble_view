@@ -130,8 +130,10 @@ export default function Home() {
         }
 
         // 改善 gateway 命令回應偵測，並處理 ERROR 說明
-        if (/(ERROR|OK|STATUS|REBOOT|VERSION|BLE_CONN_LIST|BLE_FILTER_LIST|BLE_CONN_CLEAR|BLE_DISCONN_ALL)/.test(newData)) {
-          let resp = newData.trim();
+        // 檢查 buffer 中是否有完整的命令回應（以分號結尾）
+        const commandMatch = buffer.match(/(ERROR|OK|STATUS|REBOOT|VERSION|BLE_CONN_LIST|BLE_FILTER_LIST|BLE_CONN_CLEAR|BLE_DISCONN_ALL)[^;]*;/);
+        if (commandMatch) {
+          let resp = commandMatch[0].trim();
           // 若為 ERROR，顯示詳細說明
           const errorMatch = resp.match(/ERROR;(.+)/);
           if (errorMatch) {
@@ -147,9 +149,13 @@ export default function Home() {
               bleConnListBuffer = '';
               waitingForConnList = false;
             }
+            // 移除已處理的命令回應
+            buffer = buffer.replace(commandMatch[0], '');
             continue;
           }
           setGatewayResponse(resp);
+          // 移除已處理的命令回應
+          buffer = buffer.replace(commandMatch[0], '');
         }
 
         if (dataFormatRef.current === 'original') {
