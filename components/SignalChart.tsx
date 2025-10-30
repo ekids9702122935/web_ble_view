@@ -14,6 +14,7 @@ import {
   ChartOptions
 } from 'chart.js';
 import { Bar, Line } from 'react-chartjs-2';
+import { useMemo } from 'react';
 import 'chartjs-adapter-date-fns';
 import { zhTW } from 'date-fns/locale/zh-TW';
 
@@ -45,6 +46,7 @@ interface SignalChartProps {
 }
 
 export function SignalChart({ devices, chartType, dataFormat = 'original' }: SignalChartProps) {
+  const isHeartRateMode = dataFormat === 'allscanparse';
   // 將 RSSI 值轉換為 0-100 的信號強度
   const normalizeRSSI = (rssi: number): number => {
     const min = -100;
@@ -79,7 +81,7 @@ export function SignalChart({ devices, chartType, dataFormat = 'original' }: Sig
       const rssi = device.rssi;
       const count = device.updateCount;
       
-      if (dataFormat === 'allscanparse') {
+      if (isHeartRateMode) {
         return [
           `${name} `, 
           `(心率: ${rssi} BPM, ${count}次)`
@@ -94,17 +96,17 @@ export function SignalChart({ devices, chartType, dataFormat = 'original' }: Sig
     }),
     datasets: [{
       data: devices.map(device => 
-        dataFormat === 'allscanparse' 
-          ? normalizeHeartRate(device.rssi) 
+        isHeartRateMode 
+          ? device.rssi // 直接使用心率值（BPM）
           : normalizeRSSI(device.rssi)
       ),
       backgroundColor: devices.map(device => 
-        dataFormat === 'allscanparse' 
+        isHeartRateMode 
           ? getSignalColor(normalizeHeartRate(device.rssi))
           : getSignalColor(normalizeRSSI(device.rssi))
       ),
       borderColor: devices.map(device => 
-        dataFormat === 'allscanparse' 
+        isHeartRateMode 
           ? getSignalColor(normalizeHeartRate(device.rssi))
           : getSignalColor(normalizeRSSI(device.rssi))
       ),
@@ -121,14 +123,14 @@ export function SignalChart({ devices, chartType, dataFormat = 'original' }: Sig
       label: device.name || '未知設備',
       data: device.rssiHistory.map(history => ({
         x: history.timestamp,
-        y: dataFormat === 'allscanparse' 
-          ? normalizeHeartRate(history.rssi) 
+        y: isHeartRateMode 
+          ? history.rssi // 使用心率原始值
           : normalizeRSSI(history.rssi)
       })),
-      borderColor: dataFormat === 'allscanparse' 
+      borderColor: isHeartRateMode 
         ? getSignalColor(normalizeHeartRate(device.rssi))
         : getSignalColor(normalizeRSSI(device.rssi)),
-      backgroundColor: dataFormat === 'allscanparse' 
+      backgroundColor: isHeartRateMode 
         ? getSignalColor(normalizeHeartRate(device.rssi))
         : getSignalColor(normalizeRSSI(device.rssi)),
       tension: 0.4,
@@ -168,11 +170,10 @@ export function SignalChart({ devices, chartType, dataFormat = 'original' }: Sig
         callbacks: {
           label: (context: any) => {
             const device = devices[context.dataIndex];
-            if (dataFormat === 'allscanparse') {
+            if (isHeartRateMode) {
               return [
                 `ID: ${device.macAddress}`,
                 `心率: ${device.rssi} BPM`,
-                `心率強度: ${context.raw.toFixed(1)}%`,
                 `更新次數: ${device.updateCount}次`
               ];
             } else {
@@ -205,7 +206,9 @@ export function SignalChart({ devices, chartType, dataFormat = 'original' }: Sig
               const parts = context.tick.label;
               if (Array.isArray(parts) && parts.length === 2) {
                 if (context.tick.label === parts[1]) {
-                  return getSignalColor(normalizeRSSI(devices[index].rssi));
+                  return isHeartRateMode
+                    ? getSignalColor(normalizeHeartRate(devices[index].rssi))
+                    : getSignalColor(normalizeRSSI(devices[index].rssi));
                 }
               }
             }
@@ -222,7 +225,9 @@ export function SignalChart({ devices, chartType, dataFormat = 'original' }: Sig
       },
       x: {
         beginAtZero: true,
-        max: 100,
+        max: isHeartRateMode 
+          ? Math.max(120, Math.min(220, Math.max(...devices.map(d => d.rssi)) + 10))
+          : 100,
         grid: {
           color: 'rgba(0, 0, 0, 0.1)',
           lineWidth: 1
@@ -235,11 +240,11 @@ export function SignalChart({ devices, chartType, dataFormat = 'original' }: Sig
             size: 12
           },
           color: 'rgba(0, 0, 0, 0.7)',
-          callback: (value: number) => `${value}%`
+          callback: (value: number) => isHeartRateMode ? `${value}` : `${value}%`
         },
         title: {
           display: true,
-          text: dataFormat === 'allscanparse' ? '心率強度' : '信號強度',
+          text: isHeartRateMode ? '心率 (BPM)' : '信號強度',
           color: 'rgba(0, 0, 0, 0.7)',
           font: {
             size: 14,
@@ -253,6 +258,23 @@ export function SignalChart({ devices, chartType, dataFormat = 'original' }: Sig
       duration: 300
     }
   };
+
+  // ALLSCANPARSE：動態計算折線圖 Y 軸範圍（依歷史心率值）
+  const heartRateRange = useMemo(() => {
+    if (!isHeartRateMode) return null;
+    const values: number[] = [];
+    for (const d of devices) {
+      for (const h of d.rssiHistory) {
+        if (typeof h.rssi === 'number' && !Number.isNaN(h.rssi)) {
+          values.push(h.rssi);
+        }
+      }
+    }
+    if (values.length === 0) return { min: 40, max: 120 };
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    return { min, max };
+  }, [devices, isHeartRateMode]);
 
   // 折線圖配置
   const lineOptions: ChartOptions<'line'> = {
@@ -313,11 +335,12 @@ export function SignalChart({ devices, chartType, dataFormat = 'original' }: Sig
         }
       },
       y: {
-        beginAtZero: true,
-        max: 100,
+        beginAtZero: isHeartRateMode ? false : true,
+        min: isHeartRateMode ? Math.max(30, (heartRateRange?.min ?? 40) - 10) : undefined,
+        max: isHeartRateMode ? Math.min(240, (heartRateRange?.max ?? 120) + 10) : 100,
         title: {
           display: true,
-          text: dataFormat === 'allscanparse' ? '心率強度 (%)' : '信號強度 (%)',
+          text: isHeartRateMode ? '心率 (BPM)' : '信號強度 (%)',
           color: 'rgba(0, 0, 0, 0.7)',
           font: {
             size: 14,

@@ -16,6 +16,12 @@ interface BluetoothDevice {
   }>;
 }
 
+interface HeartRateRecord {
+  id: string; // mac 或 ID
+  timestamp: number; // ms
+  bpm: number;
+}
+
 export default function Home() {
   const [devices, setDevices] = useState<BluetoothDevice[]>([]);
   const [port, setPort] = useState<SerialPort | null>(null);
@@ -28,6 +34,7 @@ export default function Home() {
   const dataFormatRef = useRef(dataFormat);
   const [sortBy, setSortBy] = useState<'rssi' | 'name'>('rssi');
   const [gatewayResponse, setGatewayResponse] = useState('');
+  const [heartRateLog, setHeartRateLog] = useState<HeartRateRecord[]>([]);
 
   useEffect(() => {
     isPausedRef.current = isPaused;
@@ -76,6 +83,51 @@ export default function Home() {
   const refreshChart = () => {
     setDevices([]); // 清空裝置
     setLastUpdate(Date.now());
+    // 僅在 ALLSCANPARSE 模式下，同時可選擇清除紀錄，這裡保留紀錄不自動清除
+  };
+
+  const exportHeartRateCsv = () => {
+    // 依「每秒」為時間列，設備為欄位，輸出心率矩陣
+    if (heartRateLog.length === 0) return;
+    const deviceIds = Array.from(new Set(heartRateLog.map(r => r.id))).sort();
+    const bucketToDeviceToRecord = new Map<number, Map<string, HeartRateRecord>>();
+    for (const r of heartRateLog) {
+      const bucket = Math.floor(r.timestamp / 1000) * 1000;
+      if (!bucketToDeviceToRecord.has(bucket)) {
+        bucketToDeviceToRecord.set(bucket, new Map());
+      }
+      const inner = bucketToDeviceToRecord.get(bucket)!;
+      const prev = inner.get(r.id);
+      if (!prev || r.timestamp >= prev.timestamp) {
+        inner.set(r.id, r);
+      }
+    }
+    const buckets = Array.from(bucketToDeviceToRecord.keys()).sort((a, b) => a - b);
+    const header = ['timestamp', 'isoTime', ...deviceIds];
+    const rows: string[][] = [];
+    for (const b of buckets) {
+      const iso = new Date(b).toISOString();
+      const inner = bucketToDeviceToRecord.get(b)!;
+      const cols: string[] = [String(b), iso];
+      for (const id of deviceIds) {
+        const rec = inner.get(id);
+        cols.push(rec ? String(rec.bpm) : '');
+      }
+      rows.push(cols);
+    }
+    const csv = [header, ...rows].map(cols => cols.map(v => {
+      const s = v.replace(/"/g, '""');
+      return /[",\n]/.test(s) ? `"${s}"` : s;
+    }).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `heart_rate_matrix_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const connectSerial = async () => {
@@ -353,24 +405,28 @@ export default function Home() {
           buffer = buffer.replace(/\([^,]+,\d+\)/g, ''); // 移除已處理的片段
           const currentTime = Date.now();
           const updatedDevices: BluetoothDevice[] = [];
+          const newRecords: HeartRateRecord[] = [];
 
           for (const match of matches) {
             try {
               const inner = match.slice(1, -1); // 去掉括號
               const [id, heartRate] = inner.split(',');
               if (id && heartRate) {
+                const hr = parseInt(heartRate);
+                const mac = id.trim().toLowerCase();
                 const newDevice = {
-                  macAddress: id.trim().toLowerCase(),
-                  rssi: parseInt(heartRate), // 使用心率值作為rssi欄位，方便圖表顯示
-                  name: `${id.trim()} (HR: ${heartRate})`, // 顯示ID和心率
+                  macAddress: mac,
+                  rssi: hr, // 使用心率值作為rssi欄位，方便圖表顯示
+                  name: `${id.trim()} (HR: ${hr}, #1)`, // 顯示ID、心率與接收次數
                   lastSeen: currentTime,
                   updateCount: 1,
                   rssiHistory: [{
                     timestamp: currentTime,
-                    rssi: parseInt(heartRate)
+                    rssi: hr
                   }]
                 };
                 updatedDevices.push(newDevice);
+                newRecords.push({ id: mac, timestamp: currentTime, bpm: hr });
               }
             } catch (e) {
               console.error('解析 ALLSCANPARSE 數據時發生錯誤:', e);
@@ -386,9 +442,13 @@ export default function Home() {
                 );
                 if (existingIndex >= 0) {
                   const existingDevice = newDevices[existingIndex];
+                  const nextCount = existingDevice.updateCount + 1;
                   newDevices[existingIndex] = {
                     ...existingDevice,
-                    updateCount: existingDevice.updateCount + 1,
+                    rssi: updatedDevice.rssi, // 即時更新心率
+                    lastSeen: currentTime,
+                    updateCount: nextCount,
+                    name: `${existingDevice.macAddress} (HR: ${updatedDevice.rssi}, #${nextCount})`,
                     rssiHistory: [
                       ...existingDevice.rssiHistory,
                       {
@@ -401,11 +461,12 @@ export default function Home() {
                   newDevices.push(updatedDevice);
                 }
               });
-              const activeDevices = newDevices.filter(
-                device => currentTime - device.lastSeen <= 60000
-              );
-              return activeDevices;
+              // ALLSCANPARSE：持續保留裝置，不自動清除
+              return newDevices;
             });
+            if (newRecords.length > 0) {
+              setHeartRateLog(prev => [...prev, ...newRecords]);
+            }
           }
         }
       }
@@ -501,6 +562,19 @@ export default function Home() {
               <option value="profile">連線格式</option>
               <option value="allscanparse">ALLSCANPARSE格式</option>
             </select>
+            {dataFormat === 'allscanparse' && (
+              <>
+                <button
+                  onClick={exportHeartRateCsv}
+                  className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700"
+                >
+                  匯出心率CSV（時間×設備）
+                </button>
+                <div className="text-sm text-gray-600">
+                  紀錄筆數：{heartRateLog.length}
+                </div>
+              </>
+            )}
             {devices.length > 0 && (
               <div className="text-sm text-gray-600">
                 共找到 {devices.length} 個設備
