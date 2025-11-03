@@ -47,6 +47,51 @@ interface SignalChartProps {
 
 export function SignalChart({ devices, chartType, dataFormat = 'original' }: SignalChartProps) {
   const isHeartRateMode = dataFormat === 'allscanparse';
+  
+  // 預定義的顏色調色板，確保每個設備都有不同且易於區分的顏色
+  const colorPalette = useMemo(() => [
+    // 高對比、鮮明顏色（邊線 alpha 0.95）
+    'rgba(230, 25, 75, 0.95)',   // 強紅
+    'rgba(60, 180, 75, 0.95)',   // 強綠
+    'rgba(0, 130, 200, 0.95)',   // 強藍
+    'rgba(245, 130, 48, 0.95)',  // 強橙
+    'rgba(145, 30, 180, 0.95)',  // 強紫
+    'rgba(70, 240, 240, 0.95)',  // 青藍
+    'rgba(240, 50, 230, 0.95)',  // 品紅
+    'rgba(210, 245, 60, 0.95)',  // 螢光黃綠
+    'rgba(250, 190, 190, 0.95)', // 淺粉
+    'rgba(0, 128, 128, 0.95)',   // 水鴨
+    'rgba(255, 215, 0, 0.95)',   // 金色
+    'rgba(255, 99, 71, 0.95)',   // 番茄紅
+    'rgba(0, 191, 255, 0.95)',   // 深天藍
+    'rgba(34, 139, 34, 0.95)',   // 森林綠
+    'rgba(138, 43, 226, 0.95)',  // 藍紫
+  ], []);
+
+  // 為設備分配固定顏色的函數（基於 MAC 地址的穩定分配）
+  const getDeviceColor = useMemo(() => {
+    const colorMap = new Map<string, string>();
+    // 簡單的 hash 函數，將 MAC 地址轉換為索引
+    const hashString = (str: string): number => {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // 轉換為 32 位整數
+      }
+      return Math.abs(hash);
+    };
+    return (deviceIndex: number, macAddress: string): string => {
+      if (!colorMap.has(macAddress)) {
+        // 使用 MAC 地址的 hash 來分配顏色，確保每個設備顏色穩定
+        const colorIndex = hashString(macAddress) % colorPalette.length;
+        const color = colorPalette[colorIndex];
+        colorMap.set(macAddress, color);
+      }
+      return colorMap.get(macAddress)!;
+    };
+  }, [colorPalette]);
+
   // 將 RSSI 值轉換為 0-100 的信號強度
   const normalizeRSSI = (rssi: number): number => {
     const min = -100;
@@ -68,7 +113,7 @@ export function SignalChart({ devices, chartType, dataFormat = 'original' }: Sig
     return Math.round(Math.pow(10, (Math.abs(rssi) - Math.abs(A)) / (10 * n)) * 10) / 10;
   };
 
-  // 根據信號強度生成顏色
+  // 根據信號強度生成顏色（僅用於柱狀圖）
   const getSignalColor = (strength: number): string => {
     const hue = (strength * 1.2);
     return `hsla(${hue}, 70%, 50%, 0.8)`;
@@ -117,28 +162,31 @@ export function SignalChart({ devices, chartType, dataFormat = 'original' }: Sig
     }]
   };
 
-  // 創建折線圖數據
-  const lineData = {
-    datasets: devices.map(device => ({
-      label: device.name || '未知設備',
-      data: device.rssiHistory.map(history => ({
-        x: history.timestamp,
-        y: isHeartRateMode 
-          ? history.rssi // 使用心率原始值
-          : normalizeRSSI(history.rssi)
-      })),
-      borderColor: isHeartRateMode 
-        ? getSignalColor(normalizeHeartRate(device.rssi))
-        : getSignalColor(normalizeRSSI(device.rssi)),
-      backgroundColor: isHeartRateMode 
-        ? getSignalColor(normalizeHeartRate(device.rssi))
-        : getSignalColor(normalizeRSSI(device.rssi)),
-      tension: 0.4,
-      pointRadius: 2,
-      borderWidth: 2,
-      fill: false
-    }))
-  };
+  // 創建折線圖數據（使用 useMemo 穩定數據結構，避免閃爍）
+  const lineData = useMemo(() => ({
+    datasets: devices.map((device, index) => {
+      const deviceColor = getDeviceColor(index, device.macAddress);
+      return {
+        label: device.name || '未知設備',
+        data: device.rssiHistory.map(history => ({
+          x: history.timestamp,
+          y: isHeartRateMode 
+            ? history.rssi // 使用心率原始值
+            : normalizeRSSI(history.rssi)
+        })),
+        borderColor: deviceColor,
+        backgroundColor: deviceColor.replace('0.95', '0.18'), // 邊線高對比，填充淡化
+        tension: 0.4,
+        pointRadius: 3, // 稍大點以搭配強烈顏色
+        pointHoverRadius: 6, // hover時放大
+        borderWidth: 3,
+        fill: false,
+        pointBackgroundColor: deviceColor,
+        pointBorderColor: '#ffffff', // 白色邊框增加對比
+        pointBorderWidth: 1
+      };
+    })
+  }), [devices, isHeartRateMode, getDeviceColor]);
 
   // 柱狀圖配置
   const barOptions: ChartOptions<'bar'> = {
@@ -255,7 +303,7 @@ export function SignalChart({ devices, chartType, dataFormat = 'original' }: Sig
       }
     },
     animation: {
-      duration: 300
+      duration: 0 // 禁用動畫以減少閃爍，實現即時順暢更新
     }
   };
 
@@ -350,7 +398,11 @@ export function SignalChart({ devices, chartType, dataFormat = 'original' }: Sig
       }
     },
     animation: {
-      duration: 300
+      duration: 0 // 禁用動畫以減少閃爍，實現即時順暢更新
+    },
+    interaction: {
+      intersect: false,
+      mode: 'index' as const
     }
   };
 
